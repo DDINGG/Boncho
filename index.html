@@ -135,6 +135,14 @@ button{font:inherit;color:inherit}
 .edtb{position:sticky;top:calc(var(--sh) + env(safe-area-inset-top,0px));z-index:10;display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:6px;margin-top:10px;background:var(--sunk);border:1px solid var(--line);border-bottom:0;border-radius:3px 3px 0 0}
 .edtb button,.edtb select,.edtb label.cb{height:32px;min-width:32px;padding:0 8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:3px;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
 .edtb select{padding:0 4px;max-width:118px}
+.edtb .tl{font-size:11px;color:var(--mute);padding:0 2px}
+.edtb button.sw{min-width:30px;width:30px;height:30px;padding:0;font-weight:700;font-size:15px;border-radius:50%}
+.edtb button.sw.sb{border-color:var(--line)}
+.edtb input.szn{width:62px;height:32px;padding:0 6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:3px;font-size:13px}
+.cm-row input.fi{flex:1;min-width:0;font:inherit;font-size:14.5px;color:var(--ink);border:1px solid var(--line);background:var(--bg);padding:5px 8px;border-radius:3px}
+.pal-row{display:flex;align-items:center;gap:10px;margin:6px 0}
+.pal-row input[type=color]{width:46px;height:34px;padding:2px;border:1px solid var(--line);background:var(--surface);border-radius:3px;cursor:pointer}
+.pal-hex{flex:1;font-size:13px;color:var(--mute)}
 .edtb .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
 .edtb label.cb{position:relative;gap:4px}
 .edtb label.cb input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
@@ -158,7 +166,7 @@ button{font:inherit;color:inherit}
 .editor a{color:var(--accent);text-decoration:underline}
 .editor hr{border:0;border-top:1px solid var(--line);margin:1.2em 0}
 .editor ul,.editor ol{padding-left:1.5em;margin:.4em 0}
-.editor [style*="background-color"]{color:#1b1b1b}
+.editor [style*="background-color"]:not([style*="transparent"]){color:#1b1b1b}
 .d-foot{display:flex;justify-content:space-between;margin-top:18px;gap:8px;flex-wrap:wrap}
 
 .modal-bg{position:fixed;inset:0;z-index:60;background:rgba(10,18,17,.55);display:flex;align-items:flex-start;justify-content:center;padding:calc(env(safe-area-inset-top,0px) + 40px) 14px 20px;overflow:auto}
@@ -410,11 +418,14 @@ function parseData(){
 /* ================= 상태 ================= */
 const KO=new Intl.Collator('ko');
 const DEFAULT_TABS=['기원&감별','한방','양방'];
+const DEFAULT_FIELDS=[{k:'family',label:'과',w:0},{k:'yaksung',label:'약성가',w:1},{k:'nature',label:'성미귀경',w:1},{k:'effect',label:'효능',w:1},{k:'indication',label:'주치',w:1}];
+const DEFAULT_COLORS={fore:['#d32f2f','#1976d2','#2e7d32','#7b1fa2'],back:['#fff176','#a5d6a7','#90caf9','#f8bbd0']};
+const safeColor=c=>/^#[0-9a-fA-F]{3,8}$/.test(c||'')?c:'#000000';
 const S={
   baseTree:null,tree:null,treeCustom:false,catMap:{},base:[],baseById:{},docs:{},sigs:{},herbs:[],byId:{},
-  settings:{tabs:DEFAULT_TABS.slice()},
+  settings:{tabs:DEFAULT_TABS.slice(),fields:clone(DEFAULT_FIELDS),colors:clone(DEFAULT_COLORS)},
   db:null,assets:null,dl:null,canWrite:false,dbState:'connecting',loaded:false,
-  q:'',view:ls('view','grid'),sort:ls('sort','ko'),fav:false,catFilter:null,inContent:ls('content','1')==='1',
+  q:'',view:ls('view','grid'),sort:'cat',fav:false,catFilter:null,inContent:ls('content','1')==='1',
   route:{name:'list'},routeKey:'',rendered:false,edit:false,tabId:null,range:null,selImg:null,listScroll:0,uid:null,email:'',lastWrite:{}
 };
 
@@ -439,7 +450,7 @@ function merge(b,d,id){
   const alias=d.alias!=null?d.alias:(base.aliasList||[]).map(a=>a.h?(a.n+'('+a.h+')'):a.n).join(', ');
   return {id:base.id,base:!!b,name:d.name!=null?d.name:base.name,hanja:d.hanja!=null?d.hanja:base.hanja,alias:alias,
     catId:d.catId!=null?d.catId:base.catId,order:base.order!=null?base.order:(1e6+(d.createdAt||0)%1e9),
-    sci:d.sci||'',family:d.family||'',nature:d.nature||'',effect:d.effect||'',indication:d.indication||'',
+    info:(function(){const o={};['sci','family','nature','effect','indication'].forEach(k=>{if(d[k])o[k]=d[k];});return Object.assign(o,d.info||{});})(),
     fav:!!d.fav,tabs:Array.isArray(d.tabs)?d.tabs:null,deleted:!!d.deleted,updatedAt:d.updatedAt||0};
 }
 function buildHerbs(){
@@ -454,10 +465,11 @@ function refreshHerb(id){
   if(i>=0)S.herbs[i]=nh;else S.herbs.push(nh);
   S.byId[id]=nh;delete idxCache[id];
 }
+const fieldsOf=()=>Array.isArray(S.settings.fields)?S.settings.fields:DEFAULT_FIELDS;
 const tplTabs=()=>(S.settings.tabs&&S.settings.tabs.length?S.settings.tabs:DEFAULT_TABS).map((t,i)=>({id:'tpl'+i,title:t,html:''}));
 const getTabs=h=>(h.tabs&&h.tabs.length)?h.tabs:tplTabs();
 function hasContent(h){
-  if(h.sci||h.family||h.nature||h.effect||h.indication)return true;
+  if(h.info&&fieldsOf().some(f=>h.info[f.k]))return true;
   return !!(h.tabs&&h.tabs.some(t=>t.html&&t.html.length>0));
 }
 
@@ -540,7 +552,7 @@ function getIdx(h){
   const key=h.updatedAt+'|'+h.name+'|'+h.hanja+'|'+h.alias;
   const c=idxCache[h.id];if(c&&c.key===key)return c;
   const name=norm(h.name),hanja=norm(h.hanja),alias=norm(h.alias);
-  const raw=[h.sci,h.family,h.nature,h.effect,h.indication].concat((h.tabs||[]).map(t=>t.title+' '+stripHtml(t.html))).join(' ').trim();
+  const raw=Object.keys(h.info||{}).map(k=>h.info[k]).filter(Boolean).concat((h.tabs||[]).map(t=>t.title+' '+stripHtml(t.html))).join(' ').trim();
   const text=norm(raw);
   const x={key,name,hanja,alias,cho:chosung(name),aliasCho:chosung(alias),aliasKo:toHangul(alias),text,textKo:text?toHangul(text):'',raw};
   idxCache[h.id]=x;return x;
@@ -706,7 +718,7 @@ function leaveRoute(){
 }
 
 /* ================= 상세 화면 ================= */
-const INFO=[['sci','학명',0],['family','과',0],['nature','성미귀경',1],['effect','효능',1],['indication','주치',1]];
+/* 고정 정보 항목은 설정에서 일괄 관리 */
 function catOptions(sel){
   let s='';
   const walk=(nodes,pre)=>nodes.forEach(n=>{
@@ -720,19 +732,25 @@ function catOptions(sel){
 }
 const FONTS=[['','글꼴'],['Noto Sans KR, sans-serif','고딕 (Noto Sans)'],['Noto Serif KR, serif','명조 (Noto Serif)'],['Nanum Gothic, sans-serif','나눔고딕'],['Nanum Myeongjo, serif','나눔명조'],['Gowun Batang, serif','고운바탕'],['Nanum Pen Script, cursive','나눔손글씨 펜'],['monospace','고정폭']];
 const SIZES=[10,12,14,16,18,20,24,28,32,40,48];
+function colorBarHtml(){
+  const col=S.settings.colors||DEFAULT_COLORS;
+  return '<span class="tl">글자색</span>'+(col.fore||[]).map(c=>'<button type="button" class="sw" data-fore="'+esc(safeColor(c))+'" style="color:'+esc(safeColor(c))+'" title="글자색 '+esc(c)+'">A</button>').join('')
+   +'<span class="tl">형광펜</span>'+(col.back||[]).map(c=>'<button type="button" class="sw sb" data-back="'+esc(safeColor(c))+'" style="background:'+esc(safeColor(c))+'" title="형광펜 '+esc(c)+'"></button>').join('')
+   +'<button type="button" data-cmd="hl-off" title="선택한 글자의 형광펜 해제">형광펜 해제</button>'
+   +'<button type="button" data-cmd="palette" title="색 추가·변경·삭제">색 편집</button>';
+}
 function toolbarHtml(){
   const b=(cmd,label,title,extra)=>'<button type="button" data-cmd="'+cmd+'" title="'+title+'"'+(extra||'')+'>'+label+'</button>';
   return '<div class="edtb" id="edtb" role="toolbar" aria-label="서식">'
    +b('undo','↶','실행 취소')+b('redo','↷','다시 실행')+'<span class="sep"></span>'
    +'<select data-sel="font" aria-label="글꼴">'+FONTS.map(f=>'<option value="'+esc(f[0])+'">'+esc(f[1])+'</option>').join('')+'</select>'
    +'<select data-sel="size" aria-label="글자 크기"><option value="">크기</option>'+SIZES.map(n=>'<option value="'+n+'">'+n+'px</option>').join('')+'</select>'
+   +'<input type="number" id="szNum" class="szn" min="6" max="300" step="1" placeholder="직접" aria-label="글자 크기 직접 입력(px)" title="글자 크기를 숫자로 직접 입력 (6~300px)">'+b('sizeapply','적용','입력한 크기를 선택한 글자에 적용')
    +'<select data-sel="block" aria-label="문단 형식"><option value="">문단</option><option value="p">본문</option><option value="h1">제목 1</option><option value="h2">제목 2</option><option value="h3">제목 3</option><option value="blockquote">인용</option></select>'
    +'<span class="sep"></span>'
    +b('bold','<b>B</b>','굵게 (Ctrl+B)')+b('italic','<i>I</i>','기울임 (Ctrl+I)')+b('underline','<u>U</u>','밑줄 (Ctrl+U)')+b('strike','<s>S</s>','취소선')
    +b('sub','x₂','아래첨자')+b('sup','x²','위첨자')+'<span class="sep"></span>'
-   +'<label class="cb" title="글자색">A<i style="color:var(--seal)"></i><input type="color" data-color="fore" value="#b0382b" aria-label="글자색"></label>'
-   +'<label class="cb" title="형광펜 색">▨<i style="background:#fff176;color:#fff176"></i><input type="color" data-color="back" value="#fff176" aria-label="형광펜 색"></label>'
-   +b('hl','형광펜','선택한 글자에 형광펜 적용')+'<span class="sep"></span>'
+   +colorBarHtml()+'<span class="sep"></span>'
    +b('left','≡','왼쪽 정렬')+b('center','☰','가운데 정렬')+b('right','≣','오른쪽 정렬')+b('just','▤','양쪽 정렬')+'<span class="sep"></span>'
    +b('ul','•≡','글머리 목록')+b('ol','1.','번호 목록')+b('outdent','⇤','내어쓰기')+b('indent','⇥','들여쓰기')+'<span class="sep"></span>'
    +b('link','링크','링크 넣기')+b('unlink','링크해제','링크 해제')
@@ -754,10 +772,11 @@ function renderDetail(){
   if(!tabs.some(t=>t.id===S.tabId))S.tabId=tabs[0].id;
   const tab=tabs.find(t=>t.id===S.tabId),ti=tabs.indexOf(tab);
   document.body.toggleAttribute('data-edit',!!edit);
-  const infoHtml=INFO.map(f=>{
-    const v=h[f[0]];
-    if(edit)return '<div class="'+(f[2]?'w':'')+'"><label>'+f[1]+(f[0]==='nature'?'<textarea data-info="'+f[0]+'" rows="1" placeholder="예) 辛·微苦, 溫 / 肺·膀胱經">'+esc(v)+'</textarea>':'<textarea data-info="'+f[0]+'" rows="1">'+esc(v)+'</textarea>')+'</label></div>';
-    return '<div class="f '+(f[2]?'w':'')+'"><dl style="margin:0"><dt>'+f[1]+'</dt><dd class="'+(v?'':'nil')+'">'+(v?esc(v):'—')+'</dd></dl></div>';
+  const FL=fieldsOf();
+  const infoHtml=FL.map(f=>{
+    const v=(h.info&&h.info[f.k])||'';
+    if(edit)return '<div class="'+(f.w?'w':'')+'"><label>'+esc(f.label)+'<textarea data-info="'+esc(f.k)+'" rows="1">'+esc(v)+'</textarea></label></div>';
+    return '<div class="f '+(f.w?'w':'')+'"><dl style="margin:0"><dt>'+esc(f.label)+'</dt><dd class="'+(v?'':'nil')+'">'+(v?esc(v):'—')+'</dd></dl></div>';
   }).join('');
   const basic=edit?'<div class="basic">'
     +'<label>한글명<input data-f="name" value="'+esc(h.name)+'"></label>'
@@ -773,7 +792,7 @@ function renderDetail(){
     +'</div>'
     +'<header class="d-head"><div class="d-hj" id="dHj">'+esc(h.hanja)+'</div><h1 id="dKo">'+esc(h.name)+'</h1><div class="d-cat" id="dCat">'+esc(catPath(catOf(h.catId)))+'</div><div class="d-alias" id="dAl">'+(h.alias?'별칭 '+esc(h.alias):'')+'</div></header>'
     +basic
-    +'<section class="info" aria-label="기본 정보">'+infoHtml+'</section>'
+    +(FL.length?'<section class="info" aria-label="기본 정보">'+infoHtml+'</section>':'')
     +'<div class="tabs" role="tablist">'+tabs.map(t=>'<button class="tab" role="tab" type="button" data-tab="'+esc(t.id)+'" aria-selected="'+(t.id===S.tabId)+'">'+esc(t.title)+'</button>').join('')+'</div>'
     +(edit?'<div class="tabtools"><button class="btn sm" data-act="tab-add" type="button">＋ 탭 추가</button><button class="btn sm" data-act="tab-rename" type="button">이름 변경</button><button class="btn sm" data-act="tab-left" type="button"'+(ti===0?' disabled':'')+'>← 앞으로</button><button class="btn sm" data-act="tab-right" type="button"'+(ti===tabs.length-1?' disabled':'')+'>뒤로 →</button><button class="btn sm danger" data-act="tab-del" type="button">탭 삭제</button></div>':'')
     +(edit?toolbarHtml():'')
@@ -838,6 +857,11 @@ function applySize(px){
   try{document.execCommand('styleWithCSS',false,false);document.execCommand('fontSize',false,'7');}catch(e){}
   $$('font[size="7"]',$('#ed')).forEach(f=>{const s=document.createElement('span');s.style.fontSize=px+'px';while(f.firstChild)s.appendChild(f.firstChild);f.replaceWith(s);});
   onEdInput();
+}
+function applyNum(){
+  const el=$('#szNum');const v=parseFloat(el&&el.value);
+  if(!(v>=6&&v<=300)){toast('6~300 사이의 숫자를 입력하세요');return;}
+  applySize(Math.round(v));
 }
 function curCell(){
   const ed=$('#ed');const sel=window.getSelection();
@@ -1039,6 +1063,8 @@ function openSettings(){
   bg.innerHTML='<div class="modal wide" role="dialog" aria-modal="true" aria-label="설정"><h3>설정</h3>'
    +'<div class="msec"><h4>저장소</h4><p>'+esc(dbTxt)+'</p><div class="row2">'+(S.dbState==='ready'?'<button class="btn sm" data-s="logout" type="button">로그아웃</button>':'<button class="btn sm" data-s="login" type="button">로그인</button>')+'</div></div>'
    +'<div class="msec"><h4>분류</h4><div class="row2"><button class="btn sm" data-s="cats" type="button"'+(S.canWrite?'':' disabled')+'>분류 관리</button><button class="btn sm" data-s="restore-cats" type="button"'+(S.canWrite&&S.treeCustom?'':' disabled')+'>교과서 분류로 되돌리기</button></div></div>'
+   +'<div class="msec"><h4>고정 정보 항목</h4><p>본초마다 표시되는 기본 정보 칸(과, 약성가, 성미귀경 등)을 모든 본초에 일괄 적용합니다. 이름·순서·너비를 바꾸고 항목을 추가하거나 삭제할 수 있습니다.</p><div class="row2"><button class="btn sm" data-s="fields" type="button"'+(S.canWrite?'':' disabled')+'>항목 관리</button></div></div>'
+   +'<div class="msec"><h4>글자색·형광펜 색</h4><div class="row2"><button class="btn sm" data-s="palette" type="button"'+(S.canWrite?'':' disabled')+'>색 관리</button></div></div>'
    +'<div class="msec"><h4>기본 탭</h4><p>새로 여는 본초에 공통으로 붙는 탭입니다. 이미 탭을 수정한 본초는 바뀌지 않습니다. 한 줄에 탭 하나씩 적으세요.</p>'
    +'<label class="fld"><textarea id="tplTabs">'+esc((S.settings.tabs||[]).join('\n'))+'</textarea></label><div class="row2"><button class="btn sm" data-s="save-tabs" type="button"'+(S.canWrite?'':' disabled')+'>기본 탭 저장</button></div></div>'
    +'<div class="msec"><h4>삭제한 본초 ('+del.length+')</h4>'
@@ -1056,6 +1082,8 @@ function openSettings(){
     const a=b.dataset.s;
     if(a==='close')close();
     else if(a==='cats'){close();openCatManager();}
+    else if(a==='fields'){close();openFieldManager();}
+    else if(a==='palette'){close();openPaletteManager();}
     else if(a==='restore-cats'){
       const ok=await confirmBox('분류 되돌리기','분류 구조를 교과서 목차 기본값으로 되돌립니다. 직접 만든 분류에 있던 본초는 ‘미분류’로 이동합니다.','되돌리기');
       if(ok){S.tree=clone(S.baseTree);S.treeCustom=false;buildCats();
@@ -1120,6 +1148,72 @@ function openCatManager(){
   draw();root.appendChild(bg);
 }
 
+function afterSettingsChange(){
+  if(S.route.name==='detail'){commitEditor();renderDetail();}
+  else renderList();
+}
+function openFieldManager(){
+  const bg=document.createElement('div');bg.className='modal-bg';
+  let fl=clone(fieldsOf());
+  const draw=()=>{
+    bg.innerHTML='<div class="modal wide" role="dialog" aria-modal="true" aria-label="고정 정보 항목"><h3>고정 정보 항목</h3>'
+      +'<p>모든 본초에 똑같이 적용됩니다. 항목을 지워도 이미 적은 내용은 저장소에 남아 있지만 화면에는 보이지 않습니다.</p>'
+      +fl.map((f,i)=>'<div class="cm-row"><input class="fi" data-i="'+i+'" value="'+esc(f.label)+'" aria-label="항목 이름">'
+        +'<button class="btn sm" data-fm="w" data-i="'+i+'" type="button" title="한 줄 전체 / 반 줄 너비 전환">'+(f.w?'한 줄 전체':'반 줄')+'</button>'
+        +'<button class="btn sm" data-fm="up" data-i="'+i+'" type="button" title="위로">↑</button><button class="btn sm" data-fm="down" data-i="'+i+'" type="button" title="아래로">↓</button>'
+        +'<button class="btn sm danger" data-fm="del" data-i="'+i+'" type="button">삭제</button></div>').join('')
+      +(fl.length?'':'<p>표시할 항목이 없습니다.</p>')
+      +'<div class="mb"><button class="btn" data-fm="add" type="button">＋ 항목 추가</button><button class="btn" data-fm="reset" type="button">기본값으로</button><button class="btn" data-fm="cancel" type="button">취소</button><button class="btn primary" data-fm="save" type="button">저장</button></div></div>';
+  };
+  bg.addEventListener('input',e=>{const t=e.target;if(t.classList.contains('fi'))fl[+t.dataset.i].label=t.value;});
+  bg.addEventListener('click',async e=>{
+    if(e.target===bg){bg.remove();return;}
+    const b=e.target.closest('[data-fm]');if(!b)return;
+    const a=b.dataset.fm,i=+b.dataset.i;
+    if(a==='cancel'){bg.remove();return;}
+    if(a==='save'){
+      S.settings.fields=fl.map(f=>({k:f.k,label:(f.label||'').trim()||'항목',w:f.w?1:0}));
+      bg.remove();await saveMeta('settings',S.settings);afterSettingsChange();toast('고정 정보 항목을 저장했습니다');return;
+    }
+    if(a==='w')fl[i].w=fl[i].w?0:1;
+    else if(a==='up'&&i>0){const x=fl.splice(i,1)[0];fl.splice(i-1,0,x);}
+    else if(a==='down'&&i<fl.length-1){const x=fl.splice(i,1)[0];fl.splice(i+1,0,x);}
+    else if(a==='del')fl.splice(i,1);
+    else if(a==='add')fl.push({k:'f'+rid(),label:'새 항목',w:1});
+    else if(a==='reset')fl=clone(DEFAULT_FIELDS);
+    draw();
+  });
+  draw();$('#modal-root').appendChild(bg);
+}
+function openPaletteManager(){
+  const bg=document.createElement('div');bg.className='modal-bg';
+  let pc=clone(S.settings.colors||DEFAULT_COLORS);
+  const group=(key,title)=>'<div class="msec"><h4>'+title+'</h4>'
+    +pc[key].map((c,i)=>'<div class="pal-row"><input type="color" value="'+esc(safeColor(c))+'" data-g="'+key+'" data-i="'+i+'" aria-label="'+title+' '+(i+1)+'"><span class="pal-hex">'+esc(safeColor(c))+'</span><button class="btn sm danger" data-pm="del" data-g="'+key+'" data-i="'+i+'" type="button"'+(pc[key].length<=1?' disabled':'')+'>삭제</button></div>').join('')
+    +'<button class="btn sm" data-pm="add" data-g="'+key+'" type="button"'+(pc[key].length>=8?' disabled':'')+'>＋ 색 추가</button></div>';
+  const draw=()=>{
+    bg.innerHTML='<div class="modal" role="dialog" aria-modal="true" aria-label="색 관리"><h3>글자색·형광펜 색</h3><p>툴바에 바로 쓸 색을 정해 둡니다. 색 칸을 눌러 색을 바꾸고, 각 6~8개까지 둘 수 있습니다.</p>'
+      +group('fore','글자색')+group('back','형광펜 색')
+      +'<div class="mb"><button class="btn" data-pm="reset" type="button">기본 색으로</button><button class="btn" data-pm="cancel" type="button">취소</button><button class="btn primary" data-pm="save" type="button">저장</button></div></div>';
+  };
+  bg.addEventListener('input',e=>{
+    const t=e.target;
+    if(t.type==='color'&&t.dataset.g){pc[t.dataset.g][+t.dataset.i]=t.value;const sp=t.parentElement.querySelector('.pal-hex');if(sp)sp.textContent=t.value;}
+  });
+  bg.addEventListener('click',async e=>{
+    if(e.target===bg){bg.remove();return;}
+    const b=e.target.closest('[data-pm]');if(!b)return;
+    const a=b.dataset.pm,g=b.dataset.g,i=+b.dataset.i;
+    if(a==='cancel'){bg.remove();return;}
+    if(a==='save'){S.settings.colors=pc;bg.remove();await saveMeta('settings',S.settings);afterSettingsChange();toast('색을 저장했습니다');return;}
+    if(a==='add'&&pc[g].length<8)pc[g].push(g==='fore'?'#ef6c00':'#ffe082');
+    else if(a==='del'&&pc[g].length>1)pc[g].splice(i,1);
+    else if(a==='reset')pc=clone(DEFAULT_COLORS);
+    draw();
+  });
+  draw();$('#modal-root').appendChild(bg);
+}
+
 /* ---- 백업 ---- */
 async function exportBackup(){
   if(!S.dl){toast('이 환경에서는 파일 저장을 지원하지 않습니다');return;}
@@ -1174,7 +1268,12 @@ function onMeta(snap){
   snap.docs.forEach(d=>{
     const data=d.data()||{};
     if(d.id==='cats'&&Array.isArray(data.tree)){S.tree=data.tree;S.treeCustom=true;buildCats();changed=true;}
-    if(d.id==='settings'&&Array.isArray(data.tabs)&&data.tabs.length){S.settings=Object.assign(S.settings,{tabs:data.tabs});changed=true;}
+    if(d.id==='settings'){
+      if(Array.isArray(data.tabs)&&data.tabs.length)S.settings.tabs=data.tabs;
+      if(Array.isArray(data.fields))S.settings.fields=data.fields;
+      if(data.colors&&Array.isArray(data.colors.fore)&&Array.isArray(data.colors.back)&&data.colors.fore.length&&data.colors.back.length)S.settings.colors=data.colors;
+      changed=true;
+    }
   });
   if(changed){buildHerbs();rerenderSoon();}
 }
@@ -1393,7 +1492,7 @@ function bindGlobal(){
   $('#btnCats').addEventListener('click',()=>$('#side').classList.add('open'));
   $('#listbar').addEventListener('click',e=>{
     const v=e.target.closest('[data-view]');if(v){S.view=v.dataset.view;lsSet('view',S.view);renderList();return;}
-    const s=e.target.closest('[data-sort]');if(s){S.sort=s.dataset.sort;lsSet('sort',S.sort);renderList();return;}
+    const s=e.target.closest('[data-sort]');if(s){S.sort=s.dataset.sort;renderList();return;}
     if(e.target.closest('#chipFav')){S.fav=!S.fav;renderList();return;}
     if(e.target.closest('#chipContent')){S.inContent=!S.inContent;lsSet('content',S.inContent?'1':'0');renderList();return;}
   });
@@ -1433,11 +1532,15 @@ function bindDetail(){
     if(S.edit&&!e.target.closest('#ed img')){$$('#ed img.sel').forEach(i=>i.classList.remove('sel'));S.selImg=null;}
     const tb=e.target.closest('[data-tab]');
     if(tb){commitEditor();S.tabId=tb.dataset.tab;renderDetail();return;}
+    const sw=e.target.closest('[data-fore],[data-back]');
+    if(sw){run(sw.dataset.fore?'foreColor':'hiliteColor',sw.dataset.fore||sw.dataset.back,true);return;}
     const cmd=e.target.closest('[data-cmd]');
     if(cmd){
       const c=cmd.dataset.cmd;
       if(CMDS[c])run(CMDS[c],null,false);
-      else if(c==='hl'){const col=$('[data-color=back]').value;run('hiliteColor',col,true);}
+      else if(c==='hl-off')run('hiliteColor','transparent',true);
+      else if(c==='palette')openPaletteManager();
+      else if(c==='sizeapply')applyNum();
       else if(c==='link')addLink();
       else if(c==='image'){if(S.assets){restoreSel();$('#imgFile').click();}}
       return;
@@ -1455,7 +1558,7 @@ function bindDetail(){
   box.addEventListener('input',e=>{
     const t=e.target;
     if(t.id==='ed'){onEdInput();return;}
-    if(t.dataset&&t.dataset.info){autoGrow(t);const h=curHerb();if(h)patchDoc(h.id,{[t.dataset.info]:t.value});return;}
+    if(t.dataset&&t.dataset.info){autoGrow(t);const h=curHerb();if(h)patchDoc(h.id,{info:Object.assign({},h.info,{[t.dataset.info]:t.value})});return;}
     if(t.dataset&&t.dataset.f&&t.tagName==='INPUT'){const h=curHerb();if(!h)return;const k=t.dataset.f;patchDoc(h.id,{[k]:t.value});updateHead(S.byId[h.id]);}
   });
   box.addEventListener('change',e=>{
@@ -1471,9 +1574,9 @@ function bindDetail(){
       else if(k==='table')tableOp(v);
       return;
     }
-    if(t.dataset&&t.dataset.color){run(t.dataset.color==='fore'?'foreColor':'hiliteColor',t.value,true);return;}
     if(t.id==='imgFile'){insertImages(Array.from(t.files||[]));t.value='';}
   });
+  box.addEventListener('keydown',e=>{if(e.target.id==='szNum'&&e.key==='Enter'&&!e.isComposing){e.preventDefault();applyNum();}});
   box.addEventListener('focusout',e=>{if(e.target.id==='ed'){commitEditor();flushAll();}});
   box.addEventListener('paste',e=>{
     if(e.target.id!=='ed')return;
